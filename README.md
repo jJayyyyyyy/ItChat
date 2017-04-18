@@ -39,7 +39,7 @@ import itchat
 
 @itchat.msg_register(itchat.content.TEXT)
 def text_reply(msg):
-    return msg['Text']
+    return msg.text
 
 itchat.auto_login()
 itchat.run()
@@ -59,36 +59,61 @@ itchat.run()
 
 ## 进阶应用
 
+### 特殊的字典使用方式
+
+通过打印itchat的用户以及注册消息的参数，可以发现这些值都是字典。
+
+但实际上itchat精心构造了相应的消息、用户、群聊、公众号类。
+
+其所有的键值都可以通过这一方式访问：
+
+```python
+@itchat.msg_register(TEXT)
+def _(msg):
+    # equals to print(msg['FromUserName'])
+    print(msg.fromUserName)
+```
+
+属性名为键值首字母小写后的内容。
+
+```python
+author = itchat.search_friends(nickName='LittleCoder')[0]
+author.send('greeting, littlecoder!')
+```
+
 ### 各类型消息的注册
 
 通过如下代码，微信已经可以就日常的各种信息进行获取与回复。
 
 ```python
-#coding=utf8
 import itchat, time
 from itchat.content import *
 
 @itchat.msg_register([TEXT, MAP, CARD, NOTE, SHARING])
 def text_reply(msg):
-    itchat.send('%s: %s' % (msg['Type'], msg['Text']), msg['FromUserName'])
+    msg.user.send('%s: %s' % (msg.type, msg.text))
 
 @itchat.msg_register([PICTURE, RECORDING, ATTACHMENT, VIDEO])
 def download_files(msg):
-    msg['Text'](msg['FileName'])
-    return '@%s@%s' % ({'Picture': 'img', 'Video': 'vid'}.get(msg['Type'], 'fil'), msg['FileName'])
+    msg.download(msg.fileName)
+    typeSymbol = {
+        PICTURE: 'img',
+        VIDEO: 'vid', }.get(msg.type, 'fil')
+    return '@%s@%s' % (typeSymbol, msg.fileName)
 
 @itchat.msg_register(FRIENDS)
 def add_friend(msg):
-    itchat.add_friend(**msg['Text']) # 该操作会自动将新好友的消息录入，不需要重载通讯录
-    itchat.send_msg('Nice to meet you!', msg['RecommendInfo']['UserName'])
+    msg.user.verify()
+    msg.user.send('Nice to meet you!')
 
 @itchat.msg_register(TEXT, isGroupChat=True)
 def text_reply(msg):
-    if msg['isAt']:
-        itchat.send(u'@%s\u2005I received: %s' % (msg['ActualNickName'], msg['Content']), msg['FromUserName'])
+    if msg.isAt:
+        msg.user.send(u'@%s\u2005I received: %s' % (
+            msg.actualNickName, msg.text))
 
 itchat.auto_login(True)
-itchat.run()
+itchat.run(True)
 ```
 
 ### 命令行二维码
@@ -154,20 +179,22 @@ itchat的附件下载方法存储在msg的Text键中。
 下载方法接受一个可用的位置参数（包括文件名），并将文件相应的存储。
 
 ```python
-@itchat.msg_register(['Picture', 'Recording', 'Attachment', 'Video'])
+@itchat.msg_register([PICTURE, RECORDING, ATTACHMENT, VIDEO])
 def download_files(msg):
-    msg['Text'](msg['FileName'])
-    itchat.send('@%s@%s'%('img' if msg['Type'] == 'Picture' else 'fil', msg['FileName']), msg['FromUserName'])
-    return '%s received'%msg['Type']
+    msg.download(msg.fileName)
+    itchat.send('@%s@%s' % (
+        'img' if msg['Type'] == 'Picture' else 'fil', msg['FileName']),
+        msg['FromUserName'])
+    return '%s received' % msg['Type']
 ```
 
 如果你不需要下载到本地，仅想要读取二进制串进行进一步处理可以不传入参数，方法将会返回图片的二进制串。
 
 ```python
-@itchat.msg_register(['Picture', 'Recording', 'Attachment', 'Video'])
+@itchat.msg_register([PICTURE, RECORDING, ATTACHMENT, VIDEO])
 def download_files(msg):
-    with open(msg['FileName'], 'wb') as f:
-        f.write(msg['Text']())
+    with open(msg.fileName, 'wb') as f:
+        f.write(msg.download())
 ```
 
 ### 用户多开
@@ -182,7 +209,7 @@ newInstance.auto_login(hotReload=True, statusStorageDir='newInstance.pkl')
 
 @newInstance.msg_register(TEXT)
 def reply(msg):
-    return msg['Text']
+    return msg.text
 
 newInstance.run()
 ```
@@ -216,10 +243,6 @@ Q: 为什么中文的文件没有办法上传？
 
 A: 这是由于`requests`的编码问题导致的。若需要支持中文文件传输，将[fields.py][fields.py-2](py3版本见[这里][fields.py-3])文件放入requests包的packages/urllib3下即可
 
-Q: 为什么我在设定了`itchat.auto_login()`的`enableCmdQR`为`True`后还是没有办法在命令行显示二维码？
-
-A: 这是由于没有安装可选的包`pillow`，可以使用右边的命令安装：`pip install pillow`
-
 Q: 如何通过这个包将自己的微信号变为控制器？
 
 A: 有两种方式：发送、接受自己UserName的消息；发送接收文件传输助手（filehelper）的消息
@@ -238,11 +261,15 @@ A: 有些账号是天生无法给自己的账号发送信息的，建议使用`f
 
 ## 类似项目
 
+[youfou/wxpy][youfou-wxpy]: 优秀的api包装和配套插件，微信机器人/优雅的微信个人号API
+
 [liuwons/wxBot][liuwons-wxBot]: 类似的基于Python的微信机器人
 
 [zixia/wechaty][zixia-wechaty]: 基于Javascript(ES6)的微信个人账号机器人NodeJS框架/库
 
 [sjdy521/Mojo-Weixin][Mojo-Weixin]: 使用Perl语言编写的微信客户端框架，可通过插件提供基于HTTP协议的api接口供其他语言调用
+
+[HanSon/vbot][HanSon-vbot]: 基于PHP7的微信个人号机器人，通过实现匿名函数可以方便地实现各种自定义的功能
 
 ## 问题和建议
 
@@ -269,7 +296,9 @@ A: 有些账号是天生无法给自己的账号发送信息的，建议使用`f
 [littlecodersh]: https://github.com/littlecodersh
 [tempdban]: https://github.com/tempdban
 [Chyroc]: https://github.com/Chyroc
+[youfou-wxpy]: https://github.com/youfou/wxpy
 [liuwons-wxBot]: https://github.com/liuwons/wxBot
 [zixia-wechaty]: https://github.com/zixia/wechaty
 [Mojo-Weixin]: https://github.com/sjdy521/Mojo-Weixin
+[HanSon-vbot]: https://github.com/hanson/vbot
 [issue#1]: https://github.com/littlecodersh/ItChat/issues/1
